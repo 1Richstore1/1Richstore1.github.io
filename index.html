@@ -256,20 +256,20 @@
                 });
             };
 
-            // 서비스 삭제
-            const deleteService = id => {
-                if (confirm("정말 이 서비스를 삭제하시겠습니까?")) {
-                    setServices(prev => prev.filter(s => s.id !== id));
-                }
-            };
-
-            // 서비스 재고 업데이트
-            const updateServiceStock = (id, stockChange) => {
+            // 서비스 재고 업데이트 (직접 입력 또는 +/- 버튼 변경 모두 처리)
+            const updateServiceStock = (id, value, isDelta = true) => {
                 setServices(prev => prev.map(svc => {
                     if (svc.id === id) {
                         const oldStock = svc.stock;
-                        // NaN 방지 및 재고가 0 미만으로 내려가지 않도록 함
-                        const newStock = Math.max(0, Number(oldStock) + Number(stockChange)); 
+                        let newStock;
+                        if (isDelta) {
+                            // +/- 버튼 클릭 시: 기존 재고에 value(변경량)를 더함
+                            newStock = Math.max(0, Number(oldStock) + Number(value)); 
+                        } else {
+                            // 숫자 입력 필드 변경 시: value가 새로운 재고 값
+                            newStock = Math.max(0, Number(value)); 
+                        }
+                        
                         const updatedSvc = { ...svc, stock: newStock }; 
                         if (oldStock !== updatedSvc.stock) { // 재고가 실제로 변경되었을 때만 웹훅 전송
                             sendStockUpdateWebhook(updatedSvc); // 변경된 서비스 객체 전체를 전달
@@ -399,6 +399,72 @@
                 );
             };
 
+            // 서비스 재고 관리 행 컴포넌트 (개별 서비스의 재고 입력 상태 관리)
+            const StockManagerRow = ({ svc, updateServiceStock }) => {
+                // 입력 필드의 현재 값을 관리하는 로컬 상태
+                const [stockInputValue, setStockInputValue] = React.useState(svc.stock.toString());
+
+                // 외부에서 svc.stock 값이 변경될 때 (예: +/- 버튼 클릭 후), 입력 필드 값을 동기화
+                React.useEffect(() => {
+                    setStockInputValue(svc.stock.toString());
+                }, [svc.stock]);
+
+                // 입력 필드 값 변경 핸들러
+                const handleInputChange = (e) => {
+                    setStockInputValue(e.target.value);
+                };
+
+                // 입력 값을 확정하여 글로벌 상태에 반영하는 핸들러 (blur 또는 Enter 시 호출)
+                const handleCommitStock = () => {
+                    const newValue = parseInt(stockInputValue, 10);
+                    // 숫자가 아니거나 유효하지 않은 값이라면 기존 값으로 되돌림
+                    if (isNaN(newValue)) {
+                        setStockInputValue(svc.stock.toString()); 
+                        return;
+                    }
+                    // 유효한 숫자라면 updateServiceStock 함수를 호출하여 글로벌 상태 업데이트
+                    updateServiceStock(svc.id, newValue, false);
+                };
+
+                // 키 다운 핸들러 (Enter 키 처리)
+                const handleKeyDown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.target.blur(); // Enter 키 누르면 blur 이벤트를 발생시켜 handleCommitStock 호출
+                    }
+                };
+
+                return (
+                    <div className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-md shadow-sm">
+                        <span className="font-medium text-gray-800 dark:text-gray-200 flex-grow mr-4 truncate">{svc.title}</span>
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => updateServiceStock(svc.id, -1, true)} 
+                                className="w-9 h-9 flex items-center justify-center bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors text-2xl font-bold leading-none active:scale-90"
+                                title="재고 감소"
+                            >
+                                -
+                            </button>
+                            {/* 재고 입력 필드: 로컬 상태로 관리하여 입력 끊김 현상 방지 */}
+                            <input
+                                type="number"
+                                value={stockInputValue}
+                                onChange={handleInputChange}
+                                onBlur={handleCommitStock} // 포커스를 잃으면 변경 사항 적용
+                                onKeyDown={handleKeyDown} // Enter 키 누르면 변경 사항 적용
+                                className="w-20 text-center p-1 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent focus:ring-blue-500 focus:border-blue-500 transition-colors text-xl font-bold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <button 
+                                onClick={() => updateServiceStock(svc.id, 1, true)} 
+                                className="w-9 h-9 flex items-center justify-center bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors text-2xl font-bold leading-none active:scale-90"
+                                title="재고 증가"
+                            >
+                                +
+                            </button>
+                        </div>
+                    </div>
+                );
+            };
+
             // 관리자 패널 컴포넌트
             const AdminPanel = () => {
                 const [newCategory, setNewCategory] = React.useState("");
@@ -482,26 +548,8 @@
                                 <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
                                     {services.length > 0 ? (
                                         services.map(svc => (
-                                            <div key={svc.id} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-md shadow-sm">
-                                                <span className="font-medium text-gray-800 dark:text-gray-200 flex-grow mr-4 truncate">{svc.title}</span>
-                                                <div className="flex items-center gap-2">
-                                                    <button 
-                                                        onClick={() => updateServiceStock(svc.id, -1)} 
-                                                        className="w-9 h-9 flex items-center justify-center bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors text-2xl font-bold leading-none active:scale-90"
-                                                        title="재고 감소"
-                                                    >
-                                                        -
-                                                    </button>
-                                                    <span className="font-bold min-w-[40px] text-center text-xl text-gray-900 dark:text-gray-100">{svc.stock}</span>
-                                                    <button 
-                                                        onClick={() => updateServiceStock(svc.id, 1)} 
-                                                        className="w-9 h-9 flex items-center justify-center bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors text-2xl font-bold leading-none active:scale-90"
-                                                        title="재고 증가"
-                                                    >
-                                                        +
-                                                    </button>
-                                                </div>
-                                            </div>
+                                            // 각 서비스에 대해 StockManagerRow 컴포넌트 사용
+                                            <StockManagerRow key={svc.id} svc={svc} updateServiceStock={updateServiceStock} />
                                         ))
                                     ) : (
                                         <p className="text-center text-gray-500 dark:text-gray-400 py-4">등록된 서비스가 없습니다.</p>
