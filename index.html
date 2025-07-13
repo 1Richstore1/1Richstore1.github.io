@@ -53,6 +53,7 @@
             const [codeSentAt, setCodeSentAt] = React.useState(null);
             const [theme, setTheme] = React.useState(() => getLocalData("theme", "light"));
             const [webhookUrl, setWebhookUrl] = React.useState(() => getLocalData("webhookUrl", ""));
+            const [discordRoleId, setDiscordRoleId] = React.useState(() => getLocalData("discordRoleId", "")); // Discord 역할 ID 상태 추가
 
             // 테마 토글 함수
             const toggleTheme = () => {
@@ -82,6 +83,10 @@
             React.useEffect(() => {
                 setLocalData("webhookUrl", webhookUrl);
             }, [webhookUrl]);
+
+            React.useEffect(() => {
+                setLocalData("discordRoleId", discordRoleId); // Discord 역할 ID도 로컬 스토리지에 저장
+            }, [discordRoleId]);
 
             // 관리자 로그인 관련 함수
             const sendLoginCode = async () => {
@@ -208,16 +213,29 @@
                     timestamp: new Date().toISOString()
                 };
 
+                // 웹훅 페이로드 구성
+                let payload = {
+                    embeds: [embed] 
+                };
+
+                // Discord 역할 ID가 설정되어 있으면 content 필드에 역할 멘션 추가
+                if (discordRoleId) {
+                    payload.content = `<@&${discordRoleId}>`;
+                    // allowed_mentions를 사용하여 특정 역할만 멘션되도록 설정 (선택 사항이지만 좋은 관행)
+                    payload.allowed_mentions = {
+                        roles: [discordRoleId]
+                    };
+                }
+
                 // 최종 임베드 객체도 로그에 출력하여 확인 (문제 발생 시 이 로그를 복사하여 웹훅 테스터에서 검증)
                 console.log("전송될 임베드 객체 (최종):", embed);
+                console.log("전송될 웹훅 페이로드 (최종):", payload);
 
                 try {
                     const response = await fetch(webhookUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            embeds: [embed] 
-                        })
+                        body: JSON.stringify(payload) // 수정된 payload 사용
                     });
 
                     if (response.ok) { // HTTP 상태 코드가 200-299 범위인 경우
@@ -535,6 +553,16 @@
                                     placeholder="디스코드 웹훅 URL 입력 (예: https://discord.com/api/webhooks/...)"
                                     className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-transparent focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                 />
+                                {/* Discord 역할 ID 입력 필드 추가 */}
+                                <input
+                                    value={discordRoleId}
+                                    onChange={e => setDiscordRoleId(e.target.value)}
+                                    placeholder="재고 알림을 받을 Discord 역할 ID 입력 (선택 사항)"
+                                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-transparent focus:ring-blue-500 focus:border-blue-500 transition-colors mt-4"
+                                />
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 flex items-center gap-2">
+                                    <i className="fas fa-info-circle"></i> 역할 ID는 Discord 개발자 모드에서 역할을 우클릭하여 복사할 수 있습니다.
+                                </p>
                                 <p className="text-sm text-red-500 dark:text-red-400 mt-3 flex items-center gap-2 font-medium">
                                     <i className="fas fa-exclamation-triangle"></i> 경고: 웹훅 URL은 외부에 노출되지 않도록 주의하세요!
                                 </p>
